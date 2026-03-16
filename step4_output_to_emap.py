@@ -213,7 +213,7 @@ def _load_json(path: Path):
 
 def _fmt_pos(origin: str) -> str:
     x, y, z = (float(v) for v in origin.split())
-    return f"{x * SCALE},{y * SCALE},{z * SCALE}"
+    return f"{x * SCALE},{z * SCALE},{y * SCALE}"
 
 
 # ---------- main converter ----------
@@ -289,7 +289,7 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
 
             for v in poly:
                 idx = len(brush_pts)
-                brush_pts.append((v.x * SCALE, v.y * SCALE, v.z * SCALE))
+                brush_pts.append((v.x * SCALE, v.z * SCALE, v.y * SCALE))
                 face_pts.append(idx)
                 face_uvs.append(_compute_uv(v, ti))
 
