@@ -287,7 +287,7 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
             face_pts: list[int] = []
             face_uvs: list[tuple[float, float]] = []
 
-            for v in poly:
+            for v in reversed(poly):
                 idx = len(brush_pts)
                 brush_pts.append((v.x * SCALE, v.z * SCALE, v.y * SCALE))
                 face_pts.append(idx)
