@@ -6,12 +6,15 @@ import json
 import math
 from pathlib import Path
 
+import struct
+
 _conf = configparser.ConfigParser()
 _conf.read(Path(__file__).parent / "conf.ini")
-EMAP_DIR = Path(_conf["paths"]["emap_dir"])
+EMAP_DIR      = Path(_conf["paths"]["emap_dir"])
+MATERIALS_DIR = Path(_conf["paths"]["materials_dir"])
 
-SCALE        = 1.0 / 30.0
-TEXTURE_SIZE = 64.0
+SCALE             = 1.0 / 30.0
+DEFAULT_TEX_SIZE  = 64.0
 EPSILON      = 1e-5
 MAX_FACE_PTS = 6
 
@@ -141,11 +144,30 @@ def _parse_axis(s: str) -> tuple[float, float, float]:
     return float(parts[0]), float(parts[1]), float(parts[2])
 
 
+_tex_size_cache: dict[str, tuple[float, float]] = {}
+
+
+def _get_tex_size(texture: str) -> tuple[float, float]:
+    if texture in _tex_size_cache:
+        return _tex_size_cache[texture]
+    path = MATERIALS_DIR / f"{texture}.png"
+    if path.exists():
+        data = path.read_bytes()
+        if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n":
+            w, h = struct.unpack(">II", data[16:24])
+            if w > 0 and h > 0:
+                _tex_size_cache[texture] = (float(w), float(h))
+                return _tex_size_cache[texture]
+    _tex_size_cache[texture] = (DEFAULT_TEX_SIZE, DEFAULT_TEX_SIZE)
+    return _tex_size_cache[texture]
+
+
 def _compute_uv(vertex: _V, ti: dict) -> tuple[float, float]:
     ux, uy, uz = _parse_axis(ti["u_axis"])
     vx, vy, vz = _parse_axis(ti["v_axis"])
-    u = (vertex.x * ux + vertex.y * uy + vertex.z * uz + float(ti["u_offset"])) / TEXTURE_SIZE
-    v = (vertex.x * vx + vertex.y * vy + vertex.z * vz + float(ti["v_offset"])) / TEXTURE_SIZE
+    w, h = _get_tex_size(ti["texture"])
+    u = (vertex.x * ux + vertex.y * uy + vertex.z * uz + float(ti["u_offset"])) / w
+    v = (vertex.x * vx + vertex.y * vy + vertex.z * vz + float(ti["v_offset"])) / h
     return u, v
 
 
