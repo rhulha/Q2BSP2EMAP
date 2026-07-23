@@ -181,8 +181,6 @@ with (_INPUT_DIR / "emap_node_templates.json").open(encoding="utf-8") as _f:
     _NODE_TEMPLATES: dict[str, str] = json.load(_f)
 
 _ENTITY_MAP: dict[str, str] = {
-    "info_player_start":      "player",
-    "info_player_deathmatch": "player",
     "weapon_shotgun":         "weapon_shotgun",
     "weapon_machinegun":      "weapon_smg",
     "monster_soldier_light":  "zombie",
@@ -209,6 +207,19 @@ def _load_json(path: Path):
 def _fmt_pos(origin: str) -> str:
     x, y, z = (float(v) for v in origin.split())
     return f"{x * SCALE},{z * SCALE},{y * SCALE}"
+
+
+def _select_player_start(entities: dict) -> str | None:
+    # Q2 spawns a new game at the info_player_start without a targetname;
+    # targetname'd starts are level-transition arrival points (e.g. from base2).
+    starts = entities.get("info_player_start", [])
+    for ent in starts:
+        if not ent.get("targetname") and ent.get("origin"):
+            return ent["origin"]
+    for ent in starts:
+        if ent.get("origin"):
+            return ent["origin"]
+    return None
 
 
 # ---------- movers (func_plat) ----------
@@ -373,6 +384,14 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
 
         if brush_faces:
             emap_brushes.append((brush_parent.get(brush_idx, -1), brush_pts, brush_faces))
+
+    player_origin = _select_player_start(entities)
+    if player_origin:
+        text = (_NODE_TEMPLATES["player"]
+                .replace("%POS%", _fmt_pos(player_origin))
+                .replace("%ID%", str(node_id)))
+        node_texts.append(text)
+        node_id += 1
 
     for classname, node_key in _ENTITY_MAP.items():
         for ent in entities.get(classname, []):
