@@ -211,6 +211,78 @@ def _fmt_pos(origin: str) -> str:
     return f"{x * SCALE},{z * SCALE},{y * SCALE}"
 
 
+# ---------- movers (func_plat) ----------
+
+PLAT_DEFAULT_LIP   = 8.0
+PLAT_DEFAULT_SPEED = 200.0  # Q2 units/sec (game code default 20 units per 0.1s frame)
+
+
+def _collect_model_brushes(headnode: int, nodes_rows: list[dict], leafs_rows: list[dict],
+                           leaf_brushes: list[int]) -> set[int]:
+    result: set[int] = set()
+    stack = [headnode]
+    while stack:
+        idx = stack.pop()
+        if idx < 0:
+            leaf = leafs_rows[-1 - idx]
+            first = int(leaf["first_leaf_brush"])
+            num = int(leaf["num_leaf_brushes"])
+            result.update(leaf_brushes[first:first + num])
+        else:
+            node = nodes_rows[idx]
+            stack.append(int(node["child0"]))
+            stack.append(int(node["child1"]))
+    return result
+
+
+def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[list[str], dict[int, int], int]:
+    plats = entities.get("func_plat", [])
+    if not plats:
+        return [], {}, next_id
+
+    models_rows = _load_csv(out_dir / "models.csv")
+    nodes_rows = _load_csv(out_dir / "nodes.csv")
+    leafs_rows = _load_csv(out_dir / "leafs.csv")
+    leaf_brushes = _load_json(out_dir / "leaf_brushes.json")
+
+    node_texts: list[str] = []
+    brush_parent: dict[int, int] = {}
+
+    for ent in plats:
+        model_ref = ent.get("model", "")
+        if not model_ref.startswith("*"):
+            continue
+        model = models_rows[int(model_ref[1:])]
+
+        if "height" in ent:
+            travel = float(ent["height"])
+        else:
+            bbox_height = float(model["max_z"]) - float(model["min_z"])
+            travel = bbox_height - float(ent.get("lip", PLAT_DEFAULT_LIP))
+        if travel <= 0:
+            continue
+
+        speed = float(ent.get("speed", PLAT_DEFAULT_SPEED))
+        move_time = travel / speed if speed > 0 else 1.0
+
+        cx = (float(model["min_x"]) + float(model["max_x"])) / 2
+        cy = (float(model["min_y"]) + float(model["max_y"])) / 2
+        cz = (float(model["min_z"]) + float(model["max_z"])) / 2
+
+        text = (_NODE_TEMPLATES["mover"]
+                .replace("%POS%", f"{cx * SCALE},{cz * SCALE},{cy * SCALE}")
+                .replace("%DELTA%", f"0,{-travel * SCALE},0")
+                .replace("%TIME%", f"{move_time:.2f}")
+                .replace("%ID%", str(next_id)))
+        node_texts.append(text)
+
+        for b in _collect_model_brushes(int(model["headnode"]), nodes_rows, leafs_rows, leaf_brushes):
+            brush_parent[b] = next_id
+        next_id += 1
+
+    return node_texts, brush_parent, next_id
+
+
 # ---------- main converter ----------
 
 def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
@@ -238,9 +310,12 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
         _ensure_mat(ti["texture"])
     _ensure_mat(SKYBOX)
 
-    emap_brushes: list[tuple[list, list]] = []
+    node_id = 0
+    node_texts, brush_parent, node_id = _build_plat_movers(entities, out_dir, node_id)
 
-    for br in brushes_rows:
+    emap_brushes: list[tuple[int, list, list]] = []
+
+    for brush_idx, br in enumerate(brushes_rows):
         contents = int(br["contents"])
         if not (contents & (CONTENTS_SOLID | CONTENTS_DETAIL)):
             continue
@@ -291,10 +366,7 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
             brush_faces.append((mat_id, face_pts, face_uvs))
 
         if brush_faces:
-            emap_brushes.append((brush_pts, brush_faces))
-
-    node_id = 0
-    node_texts: list[str] = []
+            emap_brushes.append((brush_parent.get(brush_idx, -1), brush_pts, brush_faces))
 
     for classname, node_key in _ENTITY_MAP.items():
         for ent in entities.get(classname, []):
@@ -316,9 +388,9 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
         fw.write("}\r\n")
 
         fw.write("Brushes{\r\n")
-        for brush_pts, brush_faces in emap_brushes:
+        for parent, brush_pts, brush_faces in emap_brushes:
             fw.write("Brush{\r\n")
-            fw.write("parent=-1\r\n")
+            fw.write(f"parent={parent}\r\n")
             fw.write("layer=-1\r\n")
             fw.write("pos=0,0,0\r\n")
             fw.write("points=" + ";".join(f"{x},{y},{z}" for x, y, z in brush_pts) + "\r\n")
