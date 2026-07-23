@@ -139,11 +139,6 @@ def _is_sky(texture: str) -> bool:
     return any(kw in low for kw in _SKY_KEYWORDS)
 
 
-def _parse_axis(s: str) -> tuple[float, float, float]:
-    parts = s.strip("[] ").split(",")
-    return float(parts[0]), float(parts[1]), float(parts[2])
-
-
 _tex_size_cache: dict[str, tuple[float, float]] = {}
 
 
@@ -163,8 +158,8 @@ def _get_tex_size(texture: str) -> tuple[float, float]:
 
 
 def _compute_uv(vertex: _V, ti: dict) -> tuple[float, float]:
-    ux, uy, uz = _parse_axis(ti["u_axis"])
-    vx, vy, vz = _parse_axis(ti["v_axis"])
+    ux, uy, uz = float(ti["ux"]), float(ti["uy"]), float(ti["uz"])
+    vx, vy, vz = float(ti["vx"]), float(ti["vy"]), float(ti["vz"])
     w, h = _get_tex_size(ti["texture"])
     u = (vertex.x * ux + vertex.y * uy + vertex.z * uz + float(ti["u_offset"])) / w
     v = (vertex.x * vx + vertex.y * vy + vertex.z * vz + float(ti["v_offset"])) / h
