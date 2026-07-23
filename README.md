@@ -8,10 +8,10 @@ Run the steps in order:
 
 | Step | Script | What it does |
 |------|--------|--------------|
-| 0 | `q2unpacker.py` | Extracts `.bsp` and texture files from Q2 `.pak` archives |
-| 1 | `step3_bsp_to_output.py` | Parses a BSP file and writes CSVs / JSON to `output/<mapname>/` |
+| 1 | `step1_q2unpacker.py` | Extracts `.bsp` and texture files from Q2 `.pak` archives |
 | 2 | `step2_gen_materials.py` | Copies neural-upscale PNGs into the Prodeus Materials folder and writes `.mat` sidecars |
-| 3 | `step4_output_to_emap.py` | Reads the CSV/JSON output and produces a Prodeus `.emap` file |
+| 3 | `step3_bsp_to_output.py` | Parses a BSP file and writes CSVs / JSON to `output/<mapname>/` |
+| 4 | `step4_output_to_emap.py` | Reads the CSV/JSON output and produces a Prodeus `.emap` file |
 
 ## Configuration
 
