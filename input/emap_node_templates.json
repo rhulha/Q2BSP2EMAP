@@ -1,5 +1,5 @@
 {
-  "player":         "Node{\r\nPlayer\r\ngiveFists=True\r\nslowFadeIn=False\r\nstartNoHud=False\r\npos=%POS%\r\nrotation=0,0,0\r\nid=%ID%\r\nlayer=-1\r\nparent=-1\r\n}\r\n",
+  "player":         "Node{\r\nPlayer\r\ngiveFists=True\r\nslowFadeIn=False\r\nstartNoHud=False\r\npos=%POS%\r\nrotation=%ROT%\r\nid=%ID%\r\nlayer=-1\r\nparent=-1\r\n}\r\n",
   "light":          "Node{\r\nLight\r\nisOn=True\r\nrange=10\r\ncolor=0.87,0.9571,1,1\r\nintensity=1.5\r\ntype=2\r\nspotAngle=30\r\nshadows=False\r\nflickerTime=1\r\nloop=True\r\nisSun=False\r\npos=%POS%\r\nrotation=60,315,0\r\nid=%ID%\r\nlayer=-1\r\nparent=-1\r\n}\r\n",
   "weapon_shotgun": "Node{\r\nWeapon_Shotgun\r\nstartSpawned=True\r\npos=%POS%\r\nrotation=0,0,0\r\nid=%ID%\r\nlayer=-1\r\nparent=-1\r\n}\r\n",
   "weapon_smg":     "Node{\r\nWeapon_SMG\r\nstartSpawned=True\r\npos=%POS%\r\nrotation=0,0,0\r\nid=%ID%\r\nlayer=-1\r\nparent=-1\r\n}\r\n",

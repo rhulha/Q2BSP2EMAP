@@ -209,17 +209,24 @@ def _fmt_pos(origin: str) -> str:
     return f"{x * SCALE},{z * SCALE},{y * SCALE}"
 
 
-def _select_player_start(entities: dict) -> str | None:
+def _select_player_start(entities: dict) -> dict | None:
     # Q2 spawns a new game at the info_player_start without a targetname;
     # targetname'd starts are level-transition arrival points (e.g. from base2).
     starts = entities.get("info_player_start", [])
     for ent in starts:
         if not ent.get("targetname") and ent.get("origin"):
-            return ent["origin"]
+            return ent
     for ent in starts:
         if ent.get("origin"):
-            return ent["origin"]
+            return ent
     return None
+
+
+def _player_rotation(ent: dict) -> str:
+    # Q2 angle is yaw CCW about +X (Z-up); Prodeus yaw is about +Y (left-handed).
+    angle = float(ent.get("angle") or 0)
+    yaw = (90.0 - angle) % 360.0
+    return f"0,{yaw:g},0"
 
 
 # ---------- movers (func_plat) ----------
@@ -385,10 +392,11 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
         if brush_faces:
             emap_brushes.append((brush_parent.get(brush_idx, -1), brush_pts, brush_faces))
 
-    player_origin = _select_player_start(entities)
-    if player_origin:
+    player = _select_player_start(entities)
+    if player:
         text = (_NODE_TEMPLATES["player"]
-                .replace("%POS%", _fmt_pos(player_origin))
+                .replace("%POS%", _fmt_pos(player["origin"]))
+                .replace("%ROT%", _player_rotation(player))
                 .replace("%ID%", str(node_id)))
         node_texts.append(text)
         node_id += 1
