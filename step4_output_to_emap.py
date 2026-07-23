@@ -330,9 +330,6 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
         brush_planes = [bsp_planes[int(s["plane_num"])] for s in sides]
         polys = _compute_polys(brush_planes)
 
-        if any(len(p) > MAX_FACE_PTS for p in polys):
-            continue
-
         brush_pts: list[tuple[float, float, float]] = []
         brush_faces: list[tuple[int, list[int], list[tuple[float, float]]]] = []
 
@@ -354,16 +351,25 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
                 texture = SKYBOX
 
             mat_id = _ensure_mat(texture)
-            face_pts: list[int] = []
-            face_uvs: list[tuple[float, float]] = []
+            poly_pts: list[int] = []
+            poly_uvs: list[tuple[float, float]] = []
 
             for v in reversed(poly):
                 idx = len(brush_pts)
                 brush_pts.append((v.x * SCALE, v.z * SCALE, v.y * SCALE))
-                face_pts.append(idx)
-                face_uvs.append(_compute_uv(v, ti))
+                poly_pts.append(idx)
+                poly_uvs.append(_compute_uv(v, ti))
 
-            brush_faces.append((mat_id, face_pts, face_uvs))
+            if len(poly_pts) <= MAX_FACE_PTS:
+                brush_faces.append((mat_id, poly_pts, poly_uvs))
+            else:
+                # Fan-triangulate oversized faces instead of dropping the brush.
+                for t in range(1, len(poly_pts) - 1):
+                    brush_faces.append((
+                        mat_id,
+                        [poly_pts[0], poly_pts[t], poly_pts[t + 1]],
+                        [poly_uvs[0], poly_uvs[t], poly_uvs[t + 1]],
+                    ))
 
         if brush_faces:
             emap_brushes.append((brush_parent.get(brush_idx, -1), brush_pts, brush_faces))
