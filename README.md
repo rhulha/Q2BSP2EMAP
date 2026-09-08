@@ -13,6 +13,24 @@ Run the steps in order:
 | 3 | `step3_bsp_to_output.py` | Parses a BSP file and writes CSVs / JSON to `output/<mapname>/` |
 | 4 | `step4_output_to_emap.py` | Reads the CSV/JSON output and produces a Prodeus `.emap` file |
 
+## Movement support
+
+The normal step 4 exporter now handles the first upward trip of ordinary
+`func_plat` lifts: they start lowered, activate when the player enters their
+trigger, and animate upward using `SetDestEnd`. The isolated `base2` lift was
+confirmed in-game to move correctly and carry the player. The full-map export
+uses Quake 2's trigger bounds and `distance / speed` timing; acceleration is
+not reproduced yet.
+
+Automatic return and repeated trips are unfinished. Lifts with a `targetname`
+remain at the top awaiting external trigger support. Doors, rotating doors,
+and buttons still have no movement logic, so full single-player progression
+is not supported yet.
+
+If the BSP data and materials have already been exported, run just
+`python step4_output_to_emap.py` to regenerate the maps with the lift change.
+See [the lift debugging notes](docs/lift_debug.md) for the repeatable test.
+
 ## Configuration
 
 All paths are set in `conf.ini`:

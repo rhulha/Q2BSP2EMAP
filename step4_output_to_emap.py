@@ -253,10 +253,30 @@ def _collect_model_brushes(headnode: int, nodes_rows: list[dict], leafs_rows: li
     return result
 
 
-def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[list[str], dict[int, int], int]:
+def _plat_trigger_bounds(model: dict, travel: float, lip: float, spawnflags: int,
+                         origin: tuple[float, float, float]) -> tuple[tuple, tuple]:
+    # Q2 game/g_func.c: plat_spawn_inside_trigger. Bounds are in Q2 coordinates
+    # until the final Y/Z swap. Include the whole model, including clip brushes.
+    mins = [float(model[f"min_{axis}"]) for axis in "xyz"]
+    maxs = [float(model[f"max_{axis}"]) for axis in "xyz"]
+    lower = [mins[0] + 25, mins[1] + 25, maxs[2] + 8 - (travel + lip)]
+    upper = [maxs[0] - 25, maxs[1] - 25, maxs[2] + 8]
+    if spawnflags & 1:  # PLAT_LOW_TRIGGER
+        upper[2] = lower[2] + 8
+    for axis in (0, 1):
+        if upper[axis] <= lower[axis]:
+            lower[axis] = (mins[axis] + maxs[axis]) / 2
+            upper[axis] = lower[axis] + 1
+    center = tuple(((lower[i] + upper[i]) / 2 + origin[i]) * SCALE for i in (0, 2, 1))
+    size = tuple((upper[i] - lower[i]) * SCALE for i in (0, 2, 1))
+    return center, size
+
+
+def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[
+        list[str], dict[int, int], dict[int, tuple[float, float, float]], int]:
     plats = entities.get("func_plat", [])
     if not plats:
-        return [], {}, next_id
+        return [], {}, {}, next_id
 
     models_rows = _load_csv(out_dir / "models.csv")
     nodes_rows = _load_csv(out_dir / "nodes.csv")
@@ -265,6 +285,7 @@ def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[lis
 
     node_texts: list[str] = []
     brush_parent: dict[int, int] = {}
+    mover_offsets: dict[int, tuple[float, float, float]] = {}
 
     for ent in plats:
         model_ref = ent.get("model", "")
@@ -272,33 +293,55 @@ def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[lis
             continue
         model = models_rows[int(model_ref[1:])]
 
-        if "height" in ent:
-            travel = float(ent["height"])
-        else:
-            bbox_height = float(model["max_z"]) - float(model["min_z"])
-            travel = bbox_height - float(ent.get("lip", PLAT_DEFAULT_LIP))
+        # Q2 treats explicit zero values as unset for these fields.
+        lip = float(ent.get("lip", 0)) or PLAT_DEFAULT_LIP
+        bbox_height = float(model["max_z"]) - float(model["min_z"])
+        travel = float(ent.get("height", 0)) or (bbox_height - lip)
         if travel <= 0:
             continue
 
-        speed = float(ent.get("speed", PLAT_DEFAULT_SPEED))
+        speed = float(ent.get("speed", 0)) or PLAT_DEFAULT_SPEED
         move_time = travel / speed if speed > 0 else 1.0
 
         cx = (float(model["min_x"]) + float(model["max_x"])) / 2
         cy = (float(model["min_y"]) + float(model["max_y"])) / 2
         cz = (float(model["min_z"]) + float(model["max_z"])) / 2
 
-        text = (_NODE_TEMPLATES["mover"]
-                .replace("%POS%", f"{cx * SCALE},{cz * SCALE},{cy * SCALE}")
-                .replace("%DELTA%", f"0,{-travel * SCALE},0")
-                .replace("%TIME%", f"{move_time:.2f}")
-                .replace("%ID%", str(next_id)))
-        node_texts.append(text)
-
-        for b in _collect_model_brushes(int(model["headnode"]), nodes_rows, leafs_rows, leaf_brushes):
-            brush_parent[b] = next_id
+        origin = tuple(float(v) for v in ent.get("origin", "0 0 0").split())
+        named = bool(ent.get("targetname"))
+        # Ordinary Q2 plats spawn at the bottom. Target-controlled plats start
+        # at the top and must not activate until their external target fires.
+        offset_z = origin[2] if named else origin[2] - travel
+        offset = (origin[0] * SCALE, offset_z * SCALE, origin[1] * SCALE)
+        mover_id = next_id
         next_id += 1
 
-    return node_texts, brush_parent, next_id
+        text = (_NODE_TEMPLATES["mover"]
+                .replace("%POS%", f"{cx * SCALE + offset[0]},{cz * SCALE + offset[1]},{cy * SCALE + offset[2]}")
+                .replace("%DELTA%", f"0,{(-travel if named else travel) * SCALE},0")
+                .replace("%TIME%", f"{move_time:.6g}")
+                .replace("%ID%", str(mover_id)))
+        node_texts.append(text)
+        mover_offsets[mover_id] = offset
+
+        for b in _collect_model_brushes(int(model["headnode"]), nodes_rows, leafs_rows, leaf_brushes):
+            brush_parent[b] = mover_id
+
+        if named:
+            print(f"  func_plat {model_ref}: targetname={ent['targetname']} needs external trigger conversion; kept at top")
+            continue
+
+        center, size = _plat_trigger_bounds(model, travel, lip,
+                                            int(ent.get("spawnflags", 0)), origin)
+        trigger = (_NODE_TEMPLATES["plat_trigger"]
+                   .replace("%POS%", ",".join(str(v) for v in center))
+                   .replace("%SIZE%", ",".join(str(v) for v in size))
+                   .replace("%MOVER_ID%", str(mover_id))
+                   .replace("%ID%", str(next_id)))
+        node_texts.append(trigger)
+        next_id += 1
+
+    return node_texts, brush_parent, mover_offsets, next_id
 
 
 # ---------- main converter ----------
@@ -329,7 +372,7 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
     _ensure_mat(SKYBOX)
 
     node_id = 0
-    node_texts, brush_parent, node_id = _build_plat_movers(entities, out_dir, node_id)
+    node_texts, brush_parent, mover_offsets, node_id = _build_plat_movers(entities, out_dir, node_id)
 
     emap_brushes: list[tuple[int, list, list]] = []
 
@@ -425,7 +468,8 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
             fw.write("Brush{\r\n")
             fw.write(f"parent={parent}\r\n")
             fw.write("layer=-1\r\n")
-            fw.write("pos=0,0,0\r\n")
+            offset = mover_offsets.get(parent, (0, 0, 0))
+            fw.write("pos=" + ",".join(str(v) for v in offset) + "\r\n")
             fw.write("points=" + ";".join(f"{x},{y},{z}" for x, y, z in brush_pts) + "\r\n")
             for mat_id, face_pts, face_uvs in brush_faces:
                 surf = _SURF_TEMPLATE.replace("%MAT%", str(mat_id))
