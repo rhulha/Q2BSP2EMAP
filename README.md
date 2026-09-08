@@ -23,9 +23,11 @@ uses Quake 2's trigger bounds and `distance / speed` timing; acceleration is
 not reproduced yet.
 
 Automatic return and repeated trips are unfinished. Lifts with a `targetname`
-remain at the top awaiting external trigger support. Doors, rotating doors,
-and buttons still have no movement logic, so full single-player progression
-is not supported yet.
+remain at the top awaiting external trigger support. Ordinary sliding
+`func_door` entities without a `targetname` now export as touch-triggered
+movers, including teamed double doors opening together. Target-controlled
+doors, rotating doors, and buttons still need separate conversion logic, so
+full single-player progression is not supported yet.
 
 If the BSP data and materials have already been exported, run just
 `python step4_output_to_emap.py` to regenerate the maps with the lift change.

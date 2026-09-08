@@ -229,10 +229,33 @@ def _player_rotation(ent: dict) -> str:
     return f"0,{yaw:g},0"
 
 
+def _parse_origin(origin: str | None) -> tuple[float, float, float]:
+    if not origin:
+        return 0.0, 0.0, 0.0
+    x, y, z = (float(v) for v in origin.split())
+    return x, y, z
+
+
+def _q2_to_emap(x: float, y: float, z: float) -> tuple[float, float, float]:
+    return x * SCALE, z * SCALE, y * SCALE
+
+
+def _build_trigger_node(pos: tuple[float, float, float], size: tuple[float, float, float],
+                        target_structs: str, node_id: int) -> str:
+    return (_NODE_TEMPLATES["mover_trigger"]
+            .replace("%POS%", ",".join(str(v) for v in pos))
+            .replace("%SIZE%", ",".join(str(v) for v in size))
+            .replace("%TARGETS%", target_structs)
+            .replace("%ID%", str(node_id)))
+
+
 # ---------- movers (func_plat) ----------
 
 PLAT_DEFAULT_LIP   = 8.0
 PLAT_DEFAULT_SPEED = 200.0  # Q2 units/sec (game code default 20 units per 0.1s frame)
+DOOR_DEFAULT_LIP   = 8.0
+DOOR_DEFAULT_SPEED = 100.0
+DOOR_START_OPEN    = 1
 
 
 def _collect_model_brushes(headnode: int, nodes_rows: list[dict], leafs_rows: list[dict],
@@ -333,12 +356,120 @@ def _build_plat_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[
 
         center, size = _plat_trigger_bounds(model, travel, lip,
                                             int(ent.get("spawnflags", 0)), origin)
-        trigger = (_NODE_TEMPLATES["plat_trigger"]
-                   .replace("%POS%", ",".join(str(v) for v in center))
-                   .replace("%SIZE%", ",".join(str(v) for v in size))
-                   .replace("%MOVER_ID%", str(mover_id))
-                   .replace("%ID%", str(next_id)))
+        trigger = _build_trigger_node(center, size, f"OnFirstEnter,SetDestEnd,{mover_id}", next_id)
         node_texts.append(trigger)
+        next_id += 1
+
+    return node_texts, brush_parent, mover_offsets, next_id
+
+
+def _door_move_dir(ent: dict) -> tuple[float, float, float]:
+    angle = float(ent.get("angle", "0") or 0)
+    if angle == -1:
+        return 0.0, 0.0, 1.0
+    if angle == -2:
+        return 0.0, 0.0, -1.0
+    radians = math.radians(angle)
+    return math.cos(radians), math.sin(radians), 0.0
+
+
+def _door_trigger_bounds(model: dict, origin: tuple[float, float, float]) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    mins = [float(model[f"min_{axis}"]) + origin[idx] for idx, axis in enumerate("xyz")]
+    maxs = [float(model[f"max_{axis}"]) + origin[idx] for idx, axis in enumerate("xyz")]
+    center = _q2_to_emap((mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2, (mins[2] + maxs[2]) / 2)
+    size = _q2_to_emap(maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2])
+    return center, size
+
+
+def _build_door_movers(entities: dict, out_dir: Path, next_id: int) -> tuple[
+        list[str], dict[int, int], dict[int, tuple[float, float, float]], int]:
+    doors = entities.get("func_door", [])
+    if not doors:
+        return [], {}, {}, next_id
+
+    models_rows = _load_csv(out_dir / "models.csv")
+    nodes_rows = _load_csv(out_dir / "nodes.csv")
+    leafs_rows = _load_csv(out_dir / "leafs.csv")
+    leaf_brushes = _load_json(out_dir / "leaf_brushes.json")
+
+    node_texts: list[str] = []
+    brush_parent: dict[int, int] = {}
+    mover_offsets: dict[int, tuple[float, float, float]] = {}
+    door_specs: list[dict] = []
+
+    for ent in doors:
+        model_ref = ent.get("model", "")
+        if not model_ref.startswith("*"):
+            continue
+        model = models_rows[int(model_ref[1:])]
+        move_dir = _door_move_dir(ent)
+        lip = float(ent.get("lip", 0)) or DOOR_DEFAULT_LIP
+        size_x = float(model["max_x"]) - float(model["min_x"])
+        size_y = float(model["max_y"]) - float(model["min_y"])
+        size_z = float(model["max_z"]) - float(model["min_z"])
+        travel = abs(move_dir[0]) * size_x + abs(move_dir[1]) * size_y + abs(move_dir[2]) * size_z - lip
+        if travel <= 0:
+            continue
+
+        speed = float(ent.get("speed", 0)) or DOOR_DEFAULT_SPEED
+        move_time = travel / speed if speed > 0 else 1.0
+
+        cx = (float(model["min_x"]) + float(model["max_x"])) / 2
+        cy = (float(model["min_y"]) + float(model["max_y"])) / 2
+        cz = (float(model["min_z"]) + float(model["max_z"])) / 2
+        origin = _parse_origin(ent.get("origin"))
+        spawnflags = int(ent.get("spawnflags", 0))
+        start_open = bool(spawnflags & DOOR_START_OPEN)
+        start_offset_q2 = tuple(-axis * travel if start_open else 0.0 for axis in move_dir)
+        pos = _q2_to_emap(cx + origin[0] + start_offset_q2[0],
+                          cy + origin[1] + start_offset_q2[1],
+                          cz + origin[2] + start_offset_q2[2])
+        delta_q2 = tuple((-axis if start_open else axis) * travel for axis in move_dir)
+        delta = _q2_to_emap(*delta_q2)
+        offset = _q2_to_emap(*start_offset_q2)
+        mover_id = next_id
+        next_id += 1
+
+        text = (_NODE_TEMPLATES["mover"]
+                .replace("%POS%", f"{pos[0]},{pos[1]},{pos[2]}")
+                .replace("%DELTA%", f"{delta[0]},{delta[1]},{delta[2]}")
+                .replace("%TIME%", f"{move_time:.6g}")
+                .replace("%ID%", str(mover_id)))
+        node_texts.append(text)
+        mover_offsets[mover_id] = offset
+
+        for brush_idx in _collect_model_brushes(int(model["headnode"]), nodes_rows, leafs_rows, leaf_brushes):
+            brush_parent[brush_idx] = mover_id
+
+        door_specs.append({
+            "entity": ent,
+            "model": model,
+            "mover_id": mover_id,
+            "origin": origin,
+            "start_open": start_open,
+            "team": ent.get("team"),
+        })
+
+    team_targets: dict[str, str] = {}
+    for spec in door_specs:
+        team = spec["team"]
+        if not team:
+            continue
+        if team not in team_targets:
+            team_ids = [str(item["mover_id"]) for item in door_specs if item["team"] == team]
+            team_targets[team] = ";".join(f"OnFirstEnter,SetDestEnd,{mover_id}" for mover_id in team_ids)
+
+    for spec in door_specs:
+        ent = spec["entity"]
+        model_ref = ent.get("model", "")
+        if ent.get("targetname"):
+            print(f"  func_door {model_ref}: targetname={ent['targetname']} needs external trigger conversion; kept closed")
+            continue
+        if spec["start_open"]:
+            print(f"  func_door {model_ref}: start_open is exported but does not yet mirror Q2 activation semantics")
+        center, size = _door_trigger_bounds(spec["model"], spec["origin"])
+        targets = team_targets.get(spec["team"], f"OnFirstEnter,SetDestEnd,{spec['mover_id']}")
+        node_texts.append(_build_trigger_node(center, size, targets, next_id))
         next_id += 1
 
     return node_texts, brush_parent, mover_offsets, next_id
@@ -372,7 +503,19 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
     _ensure_mat(SKYBOX)
 
     node_id = 0
-    node_texts, brush_parent, mover_offsets, node_id = _build_plat_movers(entities, out_dir, node_id)
+    node_texts: list[str] = []
+    brush_parent: dict[int, int] = {}
+    mover_offsets: dict[int, tuple[float, float, float]] = {}
+
+    plat_nodes, plat_parents, plat_offsets, node_id = _build_plat_movers(entities, out_dir, node_id)
+    node_texts.extend(plat_nodes)
+    brush_parent.update(plat_parents)
+    mover_offsets.update(plat_offsets)
+
+    door_nodes, door_parents, door_offsets, node_id = _build_door_movers(entities, out_dir, node_id)
+    node_texts.extend(door_nodes)
+    brush_parent.update(door_parents)
+    mover_offsets.update(door_offsets)
 
     emap_brushes: list[tuple[int, list, list]] = []
 
