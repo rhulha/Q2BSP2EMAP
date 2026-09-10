@@ -1,0 +1,1 @@
+"D:\SteamLibrary\steamapps\common\Prodeus\Prodeus.exe" -loadEditor
