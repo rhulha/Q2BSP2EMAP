@@ -1,0 +1,25 @@
+How Prodeus ends a level
+A LevelEnd node, activated by a normal Func_Trigger. From the stock Default.emap:
+
+
+Node{
+Func_Trigger
+...
+targetStructs=OnFirstEnter,Activate,8
+}
+Node{
+LevelEnd
+isSecret=False
+loadNextLevel=False
+pos=5,0,5
+id=8
+}
+EditorNodeLevelEnd declares exactly two own fields: loadNextLevel and nextLevel. The .emap writer is reflection-based and omits default values, which is why nextLevel never appears in any shipped or workshop map — none of them use it.
+
+Where the destination actually comes from
+Not from the map. Prodeus has a campaign system: LocalData/Campaigns/<folder>/campaign.info, with keys campaignID, campaignTitle, campaignDesc, campaignTags[], campaignMaps[], campaignSplash. LoadLocalCampaigns_Coroutine scans those folders, and MapProperties already has the matching isCampaign flag (we currently write isCampaign=False). So loadNextLevel=True means "advance to the next entry in campaignMaps[]", not "load map X".
+
+Ran across all 47 maps: 46 get a LevelEnd. Only boss1 misses one — its changelevel isn't fired by a brush trigger.
+
+Two things collapse in translation, which are inherent to Prodeus's model rather than bugs I can fix: Q2's branching exits (base2 has 4, hangar1 has 3, including back-exits to the previous level) all fold into the single campaign-ordered "next map", and the map "base2$base1" arrival-spot syntax has no equivalent — you land on the destination's default info_player_start. For base1→base2 that's harmless: base2's default start is 16 units from the base1 arrival start.
+
