@@ -560,6 +560,50 @@ def _build_button_triggers(entities: dict, out_dir: Path, targetname_targets: di
     return node_texts, next_id
 
 
+# ---------- level exit (target_changelevel) ----------
+
+LEVEL_END_LOAD_NEXT = True
+
+
+def _build_level_end(entities: dict, out_dir: Path, next_id: int) -> tuple[list[str], int]:
+    exits = [e for e in entities.get("target_changelevel", []) if e.get("targetname")]
+    if not exits:
+        return [], next_id
+
+    exit_names = {e["targetname"] for e in exits}
+    models_rows = _load_csv(out_dir / "models.csv")
+
+    volumes: list[tuple[tuple, tuple]] = []
+    for ents in entities.values():
+        for ent in ents:
+            if ent.get("target") not in exit_names:
+                continue
+            model_ref = ent.get("model", "")
+            if not model_ref.startswith("*"):
+                continue
+            model = models_rows[int(model_ref[1:])]
+            volumes.append(_model_center_size(model, _parse_origin(ent.get("origin"))))
+
+    if not volumes:
+        return [], next_id
+
+    # Prodeus picks the destination from the campaign map order, not from the
+    # node, so one LevelEnd serves every changelevel exit in the map.
+    end_id = next_id
+    next_id += 1
+    pos = _q2_to_emap(*_parse_origin(exits[0].get("origin")))
+    node_texts = [_NODE_TEMPLATES["level_end"]
+                  .replace("%LOADNEXT%", str(LEVEL_END_LOAD_NEXT))
+                  .replace("%POS%", ",".join(str(v) for v in pos))
+                  .replace("%ID%", str(end_id))]
+
+    for center, size in volumes:
+        node_texts.append(_build_trigger_node(center, size, f"OnFirstEnter,Activate,{end_id}", next_id))
+        next_id += 1
+
+    return node_texts, next_id
+
+
 # ---------- main converter ----------
 
 def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
@@ -604,6 +648,9 @@ def convert_to_emap(out_dir: Path, emap_path: Path) -> None:
 
     button_nodes, node_id = _build_button_triggers(entities, out_dir, door_targetname_targets, node_id)
     node_texts.extend(button_nodes)
+
+    exit_nodes, node_id = _build_level_end(entities, out_dir, node_id)
+    node_texts.extend(exit_nodes)
 
     emap_brushes: list[tuple[int, list, list]] = []
 
