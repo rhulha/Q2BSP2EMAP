@@ -25,9 +25,15 @@ not reproduced yet.
 Automatic return and repeated trips are unfinished. Lifts with a `targetname`
 remain at the top awaiting external trigger support. Ordinary sliding
 `func_door` entities without a `targetname` now export as touch-triggered
-movers, including teamed double doors opening together. Target-controlled
-doors, rotating doors, and buttons still need separate conversion logic, so
+movers, including teamed double doors opening together. Buttons that directly
+target named sliding doors activate them through a player touch trigger.
+Rotating doors and more complex target chains still need conversion logic, so
 full single-player progression is not supported yet.
+
+Exported node IDs start at 1. Prodeus loses event targets and brush parenting
+to node 0 during import, which previously disconnected base1's first automatic
+door near the exit elevator. 
+See [the door debugging notes](docs/door_debug.md).
 
 If the BSP data and materials have already been exported, run just
 `python step4_output_to_emap.py` to regenerate the maps with the lift change.
